@@ -2,3 +2,10 @@ node_modules/
 .env
 .DS_Store
 coverage/
+.env.*
+!.env.example
+storage/
+backups/
+*.db
+*.db-shm
+*.db-wal

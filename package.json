@@ -1,12 +1,16 @@
 {
   "name": "career-match",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Explainable opportunity matching for students",
+  "description": "Sourced opportunity discovery, explainable recommendations and application tracking",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "test": "node --test"
+    "start": "node --env-file-if-exists=.env server.js",
+    "dev": "node --env-file-if-exists=.env --watch server.js",
+    "test": "node --test test/*.test.js",
+    "sync": "node --env-file-if-exists=.env manage.js sync",
+    "create-admin": "node --env-file-if-exists=.env manage.js admin",
+    "backup": "node --env-file-if-exists=.env manage.js backup",
+    "evaluate": "node evaluate.js"
   },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=24.0.0 <25" }
 }
