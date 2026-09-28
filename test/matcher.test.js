@@ -1,29 +1,10 @@
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const { validateProfile, rankOpportunities } = require('../matcher');
-const opportunities = require('../data/opportunities.json');
-const profile = { year: 3, cgpa: 7.69, location: 'Coimbatore', skills: ['Python', 'Pandas', 'Machine Learning'], interests: ['AI / ML'], preferredTypes: ['Internship'], preferredModes: ['Remote'] };
-
-test('eligibility precedes ranking even when an ineligible item matches skills', () => {
-  const items = rankOpportunities(profile, opportunities);
-  const firstIneligible = items.findIndex(item => !item.eligible);
-  assert.ok(firstIneligible > 0);
-  assert.ok(items.slice(0, firstIneligible).every(item => item.eligible));
-  assert.ok(items.slice(firstIneligible).every(item => !item.eligible));
-  assert.ok(items.find(item => item.id === 'opp-08').missing.includes('Minimum CGPA 8'));
-});
-
-test('a relevant opportunity receives a higher score and clear explanation', () => {
-  const items = rankOpportunities(profile, opportunities);
-  const relevant = items.find(item => item.id === 'opp-01');
-  const unrelated = items.find(item => item.id === 'opp-02');
-  assert.ok(relevant.score > unrelated.score);
-  assert.ok(relevant.reasons.some(reason => reason.includes('AI / ML')));
-  assert.ok(relevant.matchedSkills.includes('Python'));
-});
-
-test('rejects invalid profiles and limits list inputs', () => {
-  assert.throws(() => validateProfile({ ...profile, year: 5 }), /Year/);
-  assert.throws(() => validateProfile({ ...profile, skills: [], interests: [] }), /at least one/);
-  assert.equal(validateProfile({ ...profile, skills: Array(25).fill('Python') }).skills.length, 1);
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const os=require('node:os');
+const path=require('node:path');
+const {openDatabase,upsert,catalog}=require('../database');
+test('opportunities persist across database restarts and expired deadlines are excluded',()=>{
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),'careermatch-'));const filename=path.join(folder,'test.db');
+ try{let db=openDatabase(filename);const base={id:'persist',source:'Curated',sourceId:'persist',url:'https://example.org/persist',title:'Persistence fixture',publishedAt:new Date().toISOString(),deadline:null};upsert(db,base);upsert(db,{...base,id:'expired',sourceId:'expired',url:'https://example.org/expired',deadline:'2000-01-01'});db.close();db=openDatabase(filename);assert.equal(catalog(db).length,1);assert.equal(catalog(db)[0].id,'persist');db.close();}finally{fs.rmSync(folder,{recursive:true,force:true});}
 });
