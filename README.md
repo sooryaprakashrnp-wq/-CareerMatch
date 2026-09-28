@@ -124,3 +124,203 @@ Mutation requests use `Content-Type: application/json`. Signed-in mutations also
 Tests cover signup/login/recovery, session invalidation, admin-address reservation, CSRF and cross-origin rejection, profile validation, cross-user privacy, bookmarks, tracker updates, catalog administration, provider cooldown/failure, database restart persistence, expiry and ranking. Run tests before committing.
 
 This repository contains the complete self-hosted application and operations setup; it is not automatically deployed by committing it. Public hosting, a persistent disk, TLS and administrator provisioning are deployment-owner responsibilities. It has not undergone an independent security audit or a high-traffic load test. Real feed coverage is global/Europe-weighted, not a guarantee of India-specific internships.
+
+## Project purpose
+
+Students and job seekers often keep opportunity links in several places and lose track of applications. CareerMatch brings discovery, profile-based relevance, shortlisting and application progress into one workspace. It helps users decide what to investigate; the employer's original listing remains the authority on requirements and application submission.
+
+### Intended users
+
+| Role | Main workflow |
+|---|---|
+| Visitor | Browse and filter source-linked opportunities without creating an account |
+| Registered user | Maintain a profile, inspect match explanations, save jobs and track applications |
+| Administrator | Monitor imports and maintain curated source-linked opportunities |
+
+## Technology stack
+
+| Layer | Implementation |
+|---|---|
+| Interface | HTML, CSS and vanilla JavaScript; responsive single-page workspace |
+| Server | Node.js 24, built-in HTTP server and JSON API |
+| Persistence | SQLite through `node:sqlite`, WAL mode and foreign keys |
+| Authentication | Scrypt password hashes, server-side sessions and recovery codes |
+| Recommendation engine | TF-IDF cosine similarity and weighted profile signals |
+| External data | Arbeitnow and Remotive public APIs |
+| Tests | Built-in Node.js test runner and HTTP integration tests |
+| Packaging | Docker with persistent storage |
+| Automation | GitHub Actions runs tests and ranking regression checks |
+
+There are no third-party npm runtime dependencies. The application does not require an LLM API key, paid data subscription, or a separately installed database server.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    U["Browser workspace"] --> S["Node.js HTTP server"]
+    S --> A["Authentication and validation"]
+    S --> R["Recommendation engine"]
+    S --> D["SQLite database"]
+    F["Scheduled feed importer"] --> P["Arbeitnow and Remotive"]
+    F --> D
+    D --> R
+```
+
+1. The browser loads static interface files and requests JSON from the same origin.
+2. The server validates requests and checks the session, CSRF token and administrator permission where required.
+3. The importer fetches supported providers, normalizes listings and stores catalog records and source health.
+4. Discovery reads active, unexpired catalog entries. Signed-in profile information supplies recommendation signals.
+5. Bookmarks and application records are stored against the current user's ID. The interface renders the saved state after successful API operations.
+
+## Repository guide
+
+| Path | Responsibility |
+|---|---|
+| `server.js` | HTTP routing, API handlers, access checks, static files and sync scheduling |
+| `database.js` | Schema creation, SQLite connection, catalog reading and opportunity upserts |
+| `auth.js` | Password verification, session tokens, recovery helpers and cookies |
+| `validation.js` | Input normalization and profile/listing validation |
+| `matcher.js` | Content vectors, weighted scoring and eligibility explanations |
+| `feeds.js` | Provider adapters, normalization, cooldown and failure handling |
+| `manage.js` | Administrator provisioning, feed sync and database backups |
+| `evaluate.js` | Small synthetic recommendation regression evaluation |
+| `public/index.html` | Application shell and navigation |
+| `public/styles.css` | Responsive visual styling |
+| `public/app.js` | Discovery, authentication, profile, saved, tracker and admin interactions |
+| `test/matcher.test.js` | Persistence and deadline regression checks |
+| `test/platform.test.js` | Ranking, providers and complete API workflow tests |
+| `data/opportunities.json` | Empty retired sample catalog; not the production data source |
+| `.env.example` | Configuration template without credentials |
+| `Dockerfile` | Container build, runtime user and health check |
+| `.github/workflows/ci.yml` | Automated checks on pushes and pull requests |
+
+## Configuration reference
+
+Copy `.env.example` to `.env` before changing local configuration. Restart the server after changes.
+
+| Variable | Local example/default | Purpose |
+|---|---|---|
+| `PORT` | `3000` | HTTP listening port |
+| `APP_ORIGIN` | `http://localhost:3000` | Exact browser origin, including scheme and port; HTTPS in production |
+| `NODE_ENV` | `development` | Set `production` for production cookie and origin requirements |
+| `DATABASE_PATH` | `./storage/careermatch.db` | Database file on writable, persistent storage |
+| `ADMIN_EMAILS` | Empty | Comma-separated reserved administrator account addresses |
+| `SYNC_ENABLED` | `true` | Set `false` to disable automatic feed synchronization |
+
+Never commit `.env`, database files, backups, session cookies or recovery codes. The repository includes ignore rules for local secrets and persistent data.
+
+## User walkthrough
+
+### Discover an opportunity
+
+1. Start the server and open `http://localhost:3000`.
+2. Browse the public catalog. Search and filter by keyword, location, opportunity type, work format or source.
+3. Open a listing to inspect its description, source, restrictions and original application link.
+4. Register or sign in to use profile-based matching and private tools.
+
+### Build a profile and shortlist
+
+1. Open **Profile** and enter your academic information, skills, interests and preferences.
+2. Save the profile and return to discovery to review personalized relevance and skill gaps.
+3. Read the original listing before deciding whether you qualify. An unknown requirement is not a confirmed match.
+4. Save useful opportunities and review them in **Saved**.
+
+### Track applications
+
+1. Add an opportunity to the application tracker.
+2. Set its stage to Planned, Applied, Interview, Offer, Rejected or Withdrawn.
+3. Maintain private notes and update the stage as your application progresses.
+4. Export account data when needed.
+
+Opening an employer link does not submit an application or automatically mark it Applied. The user applies on the original site and updates the tracker themselves.
+
+### Maintain the catalog
+
+1. Provision an administrator using the command documented above.
+2. Sign in and open **Manage catalog**.
+3. Inspect provider health and the last import result. Manual synchronization still respects provider cooldowns.
+4. Add reviewed opportunities with a real HTTPS source URL and available requirements.
+5. Edit or archive curated records as their details change.
+
+## Database model
+
+| Table | Stored information | Relationship |
+|---|---|---|
+| `users` | Account identifier, name, password hash, recovery hash and profile JSON | One user has sessions, saved items and applications |
+| `sessions` | Hashed token, user ID, CSRF token and expiry | References `users` |
+| `opportunities` | Provider identity, unique source URL, listing payload, active flag and last-seen time | Referenced by saved items and applications |
+| `saved` | User ID, opportunity ID and creation time | Unique pair prevents duplicate bookmarks |
+| `applications` | User ID, opportunity ID, status, notes and update time | One tracker record per user/opportunity pair |
+| `feed_runs` | Last attempt, last success, item count and error per source | Durable source monitoring and cooldown state |
+
+SQLite initializes the schema on startup. JSON payloads store flexible profile and opportunity fields; relational keys connect accounts and activity. A database restart does not clear application data. Backups contain private account data and must be protected accordingly.
+
+## Security design
+
+- Passwords use salted asynchronous scrypt hashing rather than plaintext storage.
+- Session tokens are random and stored as hashes on the server; cookies use HttpOnly and SameSite controls, with Secure enabled in production.
+- Signed-in mutations require a CSRF token, and origin checks reject unsupported cross-origin requests.
+- Prepared statements, field validation, role checks and user-scoped queries protect database operations.
+- Recovery rotates the recovery code and invalidates existing sessions.
+- Source descriptions are rendered as plain text; security headers restrict browser behavior.
+- Authentication endpoints have rate limiting. Scaling to multiple instances requires shared rate-limit infrastructure and a different persistence design.
+
+These controls are implementation features, not a security certification. Email ownership verification and an independent security assessment remain outside this version's scope.
+
+## Verification and project presentation
+
+Run these commands from the repository root:
+
+```bash
+npm test
+npm run evaluate
+```
+
+The test suite covers five test groups, including a complete API lifecycle for accounts, private profiles, saved opportunities, application updates, recovery and administration. Other checks cover ranking, provider normalization, failed imports, cooldown persistence, database restart persistence and deadline expiry. GitHub Actions repeats the automated checks on pushes and pull requests.
+
+`npm run evaluate` uses three hand-authored queries. It is a repeatable regression check, not evidence of real-world recommendation accuracy. Test fixtures are separate from live catalog data. Listing counts vary by provider and import time, so do not present a historical import count as a permanent catalog size.
+
+Suggested demonstration sequence:
+
+1. Browse actual source-linked opportunities as a visitor.
+2. Sign in, save a profile and explain the score components on a listing.
+3. Save an opportunity and update its application stage and notes.
+4. Restart the server to demonstrate persistence.
+5. Show administrator source health and curated listing controls.
+6. Run tests and explain the architecture and current limits.
+
+## Troubleshooting
+
+| Symptom | What to check |
+|---|---|
+| `node:sqlite` cannot be loaded | Confirm `node --version` is Node.js 24.x |
+| Empty catalog on first launch | Allow the initial import to finish; check source health and outbound network access |
+| A manual import is skipped | The persistent six-hour provider cooldown may still apply |
+| Feed request fails | Review source status; previous catalog data remains available after failed imports |
+| Sign-in or changes fail after moving to a new domain | Match `APP_ORIGIN` to the actual browser origin and restart the server |
+| Production cookies are unavailable | Use HTTPS and the configured origin; production cookies are Secure |
+| Port is already in use | Choose another `PORT`, update `APP_ORIGIN` to match and restart |
+| Data disappears after redeployment | Mount a persistent volume at `DATABASE_PATH`; ephemeral storage is unsuitable |
+| Administrator registration is rejected | Reserved addresses must be provisioned with `npm run create-admin` |
+| Expected listing is missing | Check filters, active status, deadline, provider coverage and source availability |
+| Remote job has a country restriction | Remote format does not remove the employer's geographic requirements |
+
+## Current scope and future work
+
+The implemented version provides a self-hosted discovery, recommendation and application-management workflow. Publishing source to GitHub does not create a running public website.
+
+The following are **future enhancements, not implemented features**:
+
+- Verified email, email-based recovery and optional OAuth sign-in.
+- Resume document parsing and user-reviewed skill extraction.
+- Semantic embeddings with a held-out relevance evaluation dataset.
+- Additional licensed sources and stronger India-specific coverage.
+- User-controlled account deletion and notification preferences.
+- Managed PostgreSQL, migrations, shared rate limits and multi-instance operation.
+- Browser automation tests, accessibility auditing and load testing.
+
+## Maintainer and licensing
+
+Maintained in [sooryaprakashrnp-wq/-CareerMatch](https://github.com/sooryaprakashrnp-wq/-CareerMatch). Report reproducible problems through the repository's Issues page with steps, expected behavior and actual behavior. Do not attach credentials or private account exports.
+
+No project license file is currently included. Public visibility alone does not grant an open-source license. External job data remains subject to its provider's terms and attribution requirements.
